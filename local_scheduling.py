@@ -61,7 +61,7 @@ DELTA_B = 0.03
 # CDG
 model.P_CDG = Var(I, T)
 model.y = Var(I, T)
-model.u = Var(I, T, within=[0, 1])
+model.u = Var(I, T, within=PercentFraction)
 
 # battery
 model.P_B_ch = Var(T)
@@ -79,12 +79,18 @@ model.P_sur = Var(T)
 
 # --- Objective ---
 def obj_rule(model):
-    penalty_load_shift = 0.0
+    cdg_cost = 0.0
+    for i in I:
+        for t in T:
+            cdg_cost += C_CDG[i] * model.P_CDG[i, t] + C_SU[i] * model.y[i, t]
+
+    load_shift_penalty = 0.0
     for t in T:
         for tp in T:
             if t != tp:
-                penalty_load_shift += vt_t[t, tp] * model.P_sh[t, tp]
-    obj = sum(sum(C_CDG[i] * model.P_CDG[i, t] + C_SU[i] * model.y[i, t] for i in I for t in T) + sum(PR_buy[t] * model.P_short[t] - PR_sell[t] * model.P_sur[t] for t in T) + penalty_load_shift)
+                load_shift_penalty += vt_t[t, tp] * model.P_sh[t, tp]
+
+    obj = sum(cdg_cost + sum(PR_buy[t] * model.P_short[t] - PR_sell[t] * model.P_sur[t] for t in T) + load_shift_penalty)
     return obj
 model.obj = Objective(rule=obj_rule)
 
