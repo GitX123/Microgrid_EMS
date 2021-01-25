@@ -84,15 +84,19 @@ def obj_rule(model):
         for t in T:
             cdg_cost += C_CDG[i] * model.P_CDG[i, t] + C_SU[i] * model.y[i, t]
 
+    transaction_cost = 0.0
+    for t in T:
+        transaction_cost += PR_buy[t] * model.P_short[t] - PR_sell[t] * model.P_sur[t]
+
     load_shift_penalty = 0.0
     for t in T:
         for tp in T:
             if t != tp:
-                load_shift_penalty += vt_t[t, tp] * model.P_sh[t, tp]
+                load_shift_penalty += vt_t[t][tp] * model.P_sh[t, tp]
 
-    obj = sum(cdg_cost + sum(PR_buy[t] * model.P_short[t] - PR_sell[t] * model.P_sur[t] for t in T) + load_shift_penalty)
+    obj = cdg_cost + transaction_cost + load_shift_penalty
     return obj
-model.obj = Objective(rule=obj_rule)
+model.obj = Objective(rule=obj_rule, sense=minimize)
 
 # --- Constraints ---
 # CDG
