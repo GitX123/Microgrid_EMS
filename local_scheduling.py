@@ -64,15 +64,15 @@ model.ZeroOrOne = Set(initialize=[0, 1])
 # CDG
 model.P_CDG = Var(I, T)
 model.y = Var(I, T, within=model.ZeroOrOne) # start indicator
-u0 = 0
+u0 = 0 # initial 
 model.u = Var(I, T, within=model.ZeroOrOne, initialize=0)
 
 # battery
-model.P_B_ch = Var(T)
-model.P_B_dis = Var(T)
-SOC_B0 = 1
+model.P_B_ch = Var(T, within=NonNegativeReals)
+model.P_B_dis = Var(T, within=NonNegativeReals)
+SOC_B0 = 1 # initial SOC
 model.SOC_Bp = Var(T, within=PercentFraction) # before self-discharge
-model.SOC_B = Var(T, within=NonNegativeReals, bounds=(0, 1)) # after self-discharge
+model.SOC_B = Var(T, within=PercentFraction) # after self-discharge
 
 # load
 model.P_L_adj = Var(T)
@@ -105,9 +105,19 @@ model.obj = Objective(rule=obj_rule, sense=minimize)
 
 # --- Constraints ---
 # CDG
-def cdg_power_limit_rule(model, i, t):
-    return (model.P_CDG[i, t] >= model.u[i, t] * P_min[i]) and (model.P_CDG[i, t] <= model.u[i, t] * P_max[i])
-model.cdg_power_limit = Constraint(I, T, rule=cdg_power_limit_rule)
+
+# [ValueError]: non-fixed bound or weight, see: https://stackoverflow.com/questions/57065154/how-to-solve-non-fixed-bound-or-weight-using-pyomo-and-couenne-for-a-portfolio
+# def cdg_power_limit_rule(model, i, t):
+#     return (model.P_CDG[i, t] >= model.u[i, t] * P_min[i]) and (model.P_CDG[i, t] <= model.u[i, t] * P_max[i])
+# model.cdg_power_limit = Constraint(I, T, rule=cdg_power_limit_rule)
+
+def cdg_power_limit_rule1(model, i, t):
+    return model.P_CDG[i, t] >= model.u[i, t] * P_min[i]
+model.cdg_power_limit1 = Constraint(I, T, rule=cdg_power_limit_rule1)
+
+def cdg_power_limit_rule2(model, i, t):
+    return model.P_CDG[i, t] <= model.u[i, t] * P_max[i]
+model.cdg_power_limit2 = Constraint(I, T, rule=cdg_power_limit_rule2)
 
 def y_value_rule(model, i, t):
     if t == 0:
@@ -121,24 +131,45 @@ def power_balance_rule(model, t):
 model.power_balance = Constraint(T, rule=power_balance_rule)
 
 # Battery
+
+# [WARNING] DEPRECATED: Chained inequalities are deprecated. Use the inequality()
+# def charging_rule(model, t):
+#     if t == 0:
+#         return (model.P_B_ch[t] >= 0) and (model.P_B_ch[t] <= P_B_cap * (1 - SOC_B0) / (1 - L_B_ch) / ETA_BTB)
+#     return (model.P_B_ch[t] >= 0) and (model.P_B_ch[t] <= P_B_cap * (1 - model.SOC_B[t-1]) / (1 - L_B_ch) / ETA_BTB)
+# model.charging = Constraint(T, rule=charging_rule)
+
+# [ValueError]: non-fixed bound or weight, expression cannot appear in lower or upper bounds for an inequality
+# def charging_rule(model, t):
+#     if t == 0:
+#         return inequality(0, model.P_B_ch[t], P_B_cap * (1 - SOC_B0) / (1 - L_B_ch) / ETA_BTB)
+#     return inequality(0, model.P_B_ch[t], P_B_cap * (1 - model.SOC_B[t-1]) / (1 - L_B_ch) / ETA_BTB)
+# model.charging = Constraint(T, rule=charging_rule)
+
 def charging_rule(model, t):
     if t == 0:
-        return (model.P_B_ch[t] >= 0) and (model.P_B_ch[t] <= P_B_cap * (1 - SOC_B0) / (1 - L_B_ch) / ETA_BTB)
-    return (model.P_B_ch[t] >= 0) and (model.P_B_ch[t] <= P_B_cap * (1 - model.SOC_B[t-1]) / (1 - L_B_ch) / ETA_BTB)
+        return model.P_B_ch[t] <= P_B_cap * (1 - SOC_B0) / (1 - L_B_ch) / ETA_BTB
+    return model.P_B_ch[t] <= P_B_cap * (1 - model.SOC_B[t-1]) / (1 - L_B_ch) / ETA_BTB
 model.charging = Constraint(T, rule=charging_rule)
 
 def discharging_rule(model, t):
     if t == 0:
-        return (model.P_B_dis[t] >= 0) and (model.P_B_dis[t] <= P_B_cap * SOC_B0 * (1 - L_B_dis) * ETA_BTB)
-    return (model.P_B_dis[t] >= 0) and (model.P_B_dis[t] <= P_B_cap * model.SOC_B[t-1] * (1 - L_B_dis) * ETA_BTB)
+        return model.P_B_dis[t] <= P_B_cap * SOC_B0 * (1 - L_B_dis) * ETA_BTB
+    return model.P_B_dis[t] <= P_B_cap * model.SOC_B[t-1] * (1 - L_B_dis) * ETA_BTB
 model.discharging = Constraint(T, rule=discharging_rule)
 
-def b2b_capacity_rule(model, t):
-    return (model.P_B_ch[t] <= P_BTB / ETA_BTB) and (model.P_B_dis[t] <= P_BTB / ETA_BTB)
-model.b2b_capacity = Constraint(T, rule=b2b_capacity_rule)
+def b2b_charging_capacity_rule(model, t):
+    return model.P_B_ch[t] <= P_BTB / ETA_BTB
+model.b2b_charging_capacity = Constraint(T, rule=b2b_charging_capacity_rule)
+
+def b2b_discharging_capacity_rule(model, t):
+    return model.P_B_dis[t] <= P_BTB / ETA_BTB
+model.b2b_discharging_capacity = Constraint(T, rule=b2b_discharging_capacity_rule)
 
 def soc_update_rule(model, t):
-    return model.SOC_B[t] == model.SOC_B[t - 1] - (1 / P_B_cap) * ((1 / (1 - L_B_dis) / ETA_BTB * model.P_B_dis[t]) - (model.P_B_ch[t] * (1 - L_B_ch) * ETA_BTB))
+    if t == 0:
+        return model.SOC_B[t] == SOC_B0 - (1 / P_B_cap) * ((1 / (1 - L_B_dis) / ETA_BTB * model.P_B_dis[t]) - (model.P_B_ch[t] * (1 - L_B_ch) * ETA_BTB))
+    return model.SOC_B[t] == model.SOC_B[t-1] - (1 / P_B_cap) * ((1 / (1 - L_B_dis) / ETA_BTB * model.P_B_dis[t]) - (model.P_B_ch[t] * (1 - L_B_ch) * ETA_BTB))
 model.soc_update = Constraint(T, rule=soc_update_rule)
 
 def self_dis_rule(model, t):
@@ -146,20 +177,22 @@ def self_dis_rule(model, t):
 model.self_dis = Constraint(T, rule=self_dis_rule)
 
 # Load
-def load_shift_capacity_rule(model, t):
-    inflow = 0.0
-    outflow = 0.0
 
+def load_shift_inflow_rule(model, t):
+    inflow = 0.0
     for tp in T:
         if tp != t:
             inflow += model.P_sh[tp, t]
+    return inflow <= IF_max[t]
+model.load_shift_inflow = Constraint(T, rule=load_shift_inflow_rule)
 
+def load_shift_outflow_rule(model, t):
+    outflow = 0.0
     for tp in T:
         if tp != t:
             outflow += model.P_sh[t, tp]
-    
-    return (inflow <= IF_max) and (outflow <= OF_max)
-model.load_shift = Constraint(T, rule=load_shift_capacity_rule)
+    return outflow <= OF_max[t]
+model.load_shift_outflow = Constraint(T, rule=load_shift_outflow_rule)
 
 def adj_load_rule(model, t):
     inflow = 0.0
