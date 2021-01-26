@@ -56,17 +56,22 @@ P_B_cap = 200
 P_BTB = 200
 ETA_BTB = 0.98
 DELTA_B = 0.03
+
+# --- Sets ---
+model.ZeroOrOne = Set(initialize=[0, 1])
  
 # --- Variables ---
 # CDG
 model.P_CDG = Var(I, T)
-model.y = Var(I, T)
-model.u = Var(I, T, within=PercentFraction)
+model.y = Var(I, T, within=model.ZeroOrOne) # start indicator
+u0 = 0
+model.u = Var(I, T, within=model.ZeroOrOne, initialize=0)
 
 # battery
 model.P_B_ch = Var(T)
 model.P_B_dis = Var(T)
-model.SOC_Bp = Var(T) # before self-discharge
+SOC_B0 = 1
+model.SOC_Bp = Var(T, within=PercentFraction) # before self-discharge
 model.SOC_B = Var(T, within=NonNegativeReals, bounds=(0, 1)) # after self-discharge
 
 # load
@@ -105,7 +110,9 @@ def cdg_power_limit_rule(model, i, t):
 model.cdg_power_limit = Constraint(I, T, rule=cdg_power_limit_rule)
 
 def y_value_rule(model, i, t):
-    return model.y[i, t] == max(model.u[i, t] - model.u[i, t-1], 0)
+    if t == 0:
+        return model.y[i, t] == max(value(model.u[i, t]) - u0, 0)
+    return model.y[i, t] == max(value(model.u[i, t]) - value(model.u[i, t-1]), 0)
 model.y_value = Constraint(I, T, rule=y_value_rule)
 
 def power_balance_rule(model, t):
@@ -115,10 +122,14 @@ model.power_balance = Constraint(T, rule=power_balance_rule)
 
 # Battery
 def charging_rule(model, t):
+    if t == 0:
+        return (model.P_B_ch[t] >= 0) and (model.P_B_ch[t] <= P_B_cap * (1 - SOC_B0) / (1 - L_B_ch) / ETA_BTB)
     return (model.P_B_ch[t] >= 0) and (model.P_B_ch[t] <= P_B_cap * (1 - model.SOC_B[t-1]) / (1 - L_B_ch) / ETA_BTB)
 model.charging = Constraint(T, rule=charging_rule)
 
 def discharging_rule(model, t):
+    if t == 0:
+        return (model.P_B_dis[t] >= 0) and (model.P_B_dis[t] <= P_B_cap * SOC_B0 * (1 - L_B_dis) * ETA_BTB)
     return (model.P_B_dis[t] >= 0) and (model.P_B_dis[t] <= P_B_cap * model.SOC_B[t-1] * (1 - L_B_dis) * ETA_BTB)
 model.discharging = Constraint(T, rule=discharging_rule)
 
