@@ -18,8 +18,10 @@ I = [i for i in range(3)] # CDG units
 T = [t for t in range(24)] # time horizon
 
 # CDG
-C_CDG = [155, 155, 155]
-C_SU = [200, 200,  200]
+C_CDG = [[140, 135, 137.5, 135, 132.5, 140, 147.5, 152.5, 155, 160, 165, 170, 172.5, 170, 167.5, 165, 165, 162.5, 160, 157.5, 155, 142.5, 140, 137.5], 
+        [140, 135, 137.5, 135, 132.5, 140, 147.5, 152.5, 155, 160, 165, 170, 172.5, 170, 167.5, 165, 165, 162.5, 160, 157.5, 155, 142.5, 140, 137.5], 
+        [140, 135, 137.5, 135, 132.5, 140, 147.5, 152.5, 155, 160, 165, 170, 172.5, 170, 167.5, 165, 165, 162.5, 160, 157.5, 155, 142.5, 140, 137.5]]
+C_SU = [2, 2,  2]
 P_min = [0, 0, 0]
 P_max = [500, 500, 500]
 
@@ -59,13 +61,20 @@ DELTA_B = 0.03
 
 # --- Sets ---
 model.ZeroOrOne = Set(initialize=[0, 1])
+
+# --- Param ---
+model.M = Param(initialize=1e9) # big M for indicator
  
 # --- Variables ---
 # CDG
-model.P_CDG = Var(I, T)
+# model.C_CDG = Var(I, T, within=NonNegativeReals)
+model.P_CDG = Var(I, T, within=NonNegativeReals)
 model.y = Var(I, T, within=model.ZeroOrOne) # start indicator
 u0 = 0 # initial 
 model.u = Var(I, T, within=model.ZeroOrOne, initialize=0)
+# There following 2 variables are used for implementing a max function
+model.i_1 = Var(I, T, within=model.ZeroOrOne)
+model.i_2 = Var(I, T, within=model.ZeroOrOne)
 
 # battery
 model.P_B_ch = Var(T, within=NonNegativeReals)
@@ -75,19 +84,19 @@ model.SOC_Bp = Var(T, within=PercentFraction) # before self-discharge
 model.SOC_B = Var(T, within=PercentFraction) # after self-discharge
 
 # load
-model.P_L_adj = Var(T)
-model.P_sh = Var(T, T)
+model.P_L_adj = Var(T, within=NonNegativeReals)
+model.P_sh = Var(T, T, within=NonNegativeReals)
 
 # transaction
-model.P_short = Var(T)
-model.P_sur = Var(T)
+model.P_short = Var(T, within=NonNegativeReals, initialize=0)
+model.P_sur = Var(T, within=NonNegativeReals, initialize=0)
 
 # --- Objective ---
 def obj_rule(model):
     cdg_cost = 0.0
     for i in I:
         for t in T:
-            cdg_cost += C_CDG[i] * model.P_CDG[i, t] + C_SU[i] * model.y[i, t]
+            cdg_cost += C_CDG[i][t] * model.P_CDG[i, t] + C_SU[i] * model.y[i, t]
 
     transaction_cost = 0.0
     for t in T:
@@ -111,6 +120,10 @@ model.obj = Objective(rule=obj_rule, sense=minimize)
 #     return (model.P_CDG[i, t] >= model.u[i, t] * P_min[i]) and (model.P_CDG[i, t] <= model.u[i, t] * P_max[i])
 # model.cdg_power_limit = Constraint(I, T, rule=cdg_power_limit_rule)
 
+# def cdg_cost_rule(model, i, t):
+#     return model.C_CDG[i, t] == 0.5 * model.P_CDG[i, t] + 2.62
+# model.cdg_cost = Constraint(I, T, rule=cdg_cost_rule)
+
 def cdg_power_limit_rule1(model, i, t):
     return model.P_CDG[i, t] >= model.u[i, t] * P_min[i]
 model.cdg_power_limit1 = Constraint(I, T, rule=cdg_power_limit_rule1)
@@ -119,11 +132,50 @@ def cdg_power_limit_rule2(model, i, t):
     return model.P_CDG[i, t] <= model.u[i, t] * P_max[i]
 model.cdg_power_limit2 = Constraint(I, T, rule=cdg_power_limit_rule2)
 
-def y_value_rule(model, i, t):
+# [Error] Avoid using max() (discontinuous, bad for optimizer), see: https://github.com/Pyomo/pyomo/issues/821
+
+# def y_value_rule(model, i, t):
+#     if t == 0:
+#         return model.y[i, t] == max(value(model.u[i, t]) - u0, 0)
+#     return model.y[i, t] == max(value(model.u[i, t]) - value(model.u[i, t-1]), 0)
+# model.y_value = Constraint(I, T, rule=y_value_rule)
+
+# [Error] Cannot select constraints based on vairables (unless only initial values are considered), see https://groups.google.com/g/pyomo-forum/c/SJpBPHZlk7Q/m/mrphT9xIZmoJ?pli=1, https://github.com/Pyomo/pyomo/issues/821
+# def y_value_rule(model, i, t):
+#     if t == 0:
+#         if (value(model.u[i ,t]) - u0) > 0:
+#             return model.y[i, t] == model.u[i ,t] - u0
+#     else:
+#         if (value(model.u[i, t]) - value(model.u[i, t-1])) > 0:
+#             return model.y[i, t] == model.u[i, t] - model.u[i, t-1]
+#     return model.y[i, t] == 0
+# model.y_value = Constraint(I, T, rule=y_value_rule)
+
+def y_value_rule1(model, i, t):
     if t == 0:
-        return model.y[i, t] == max(value(model.u[i, t]) - u0, 0)
-    return model.y[i, t] == max(value(model.u[i, t]) - value(model.u[i, t-1]), 0)
-model.y_value = Constraint(I, T, rule=y_value_rule)
+        return model.y[i, t] >= model.u[i ,t] - u0
+    return model.y[i, t] >= model.u[i, t] - model.u[i, t-1]
+model.y_value1 = Constraint(I, T, rule=y_value_rule1)
+
+def y_value_rule2(model, i, t):
+    return model.y[i, t] >= 0
+model.y_value2 = Constraint(I, T, rule=y_value_rule2)
+
+def y_value_rule3(model, i, t):
+    if t == 0:
+        return model.y[i, t] - model.M * (1 - model.i_1[i, t]) <= model.u[i, t] - u0
+    return model.y[i, t] - model.M * (1 - model.i_1[i, t]) <= model.u[i, t] - model.u[i, t-1]
+model.y_value3 = Constraint(I, T, rule=y_value_rule3)
+
+def y_value_rule4(model, i, t):
+    return model.y[i, t] - model.M * (1 - model.i_2[i, t]) <= 0
+model.y_value4 = Constraint(I, T, rule=y_value_rule4)
+
+def y_value_rule5(model, i, t):
+    return model.i_1[i, t] + model.i_2[i, t] >= 1
+model.y_value5 = Constraint(I, T, rule=y_value_rule5)
+
+# Power
 
 def power_balance_rule(model, t):
     return (P_pv[t] + P_wt[t] + sum(model.P_CDG[i, t] for i in I) + model.P_short[t] + model.P_B_dis[t]) \
