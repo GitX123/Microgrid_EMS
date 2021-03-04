@@ -5,7 +5,7 @@ from local_scheduling import model, I, T, P_pv
 solver = SolverFactory('glpk')
 solver.solve(model)
 
-
+# --- Plot ---
 # Power
 load = [value(model.P_L_adj[t]) for t in T]
 dg = [3 * value(model.P_CDG[0, t]) for t in T]
