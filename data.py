@@ -21,7 +21,7 @@ PR_Buy = [None for t in T]
 PR_Sell = [None for t in T]
 
 
-P_CDGP_min = None
+P_CDGP_min = None       
 P_CDGP_max = None
 P_adj_min = None
 P_adj_max = None

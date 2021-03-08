@@ -1,9 +1,17 @@
 '''
 Description: Local Scheduling for a Single Microgrid
+
 MG Comonents: Load, CDG, RDG(PV + WT), Battery
+
 Unit: kWh
+
 Objective: Minimize 1. CDG cost +  2. transaction cost +  3. load shift cost 
-Param: 
+
+Data: 
+- CDG: marginal cost, startup cost, max / min output power
+- Renewable: PV & WT power
+- Battery: charging / discharging loss, battery capacity, BTB capacity, BTB efficiency, self-discharge rate
+- Load: fixed load, penalty of load shifting, max inflow, max outflow 
 '''
 
 from pyomo.environ import *
