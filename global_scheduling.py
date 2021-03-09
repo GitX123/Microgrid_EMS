@@ -9,8 +9,8 @@ def create_model(data):
     model.P_adj = Var(data.K, data.I, data.T)
 
     # transaction
-    model.P_Buy = Var(data.K, data.T)
-    model.P_Sell = Var(data.K, data.T)
+    model.P_buy = Var(data.K, data.T)
+    model.P_sell = Var(data.K, data.T)
 
     # --- Objective ---
     def obj_rule(model):
@@ -27,7 +27,7 @@ def create_model(data):
         transaction_cost = 0.0
         for k in data.K:
             for t in data.T:
-                transaction_cost += data.PR_Buy[t] * model.P_Buy[k, t] - data.PR_Sell[t] * model.P_Sell[k, t]
+                transaction_cost += data.PR_Buy[t] * model.P_buy[k, t] - data.PR_Sell[t] * model.P_sell[k, t]
 
         obj = cdgp_cost + power_adjust_cost + transaction_cost
         return obj
