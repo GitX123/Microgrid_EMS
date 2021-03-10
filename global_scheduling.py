@@ -1,3 +1,8 @@
+'''
+Description: Global scheduling operated by DSO
+
+'''
+
 from pyomo.environ import *
 
 def create_model(data):

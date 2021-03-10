@@ -16,7 +16,7 @@ Data:
 
 from pyomo.environ import *
 
-def create_model(data):
+def create_model(data, rescheduling=False):
     model = ConcreteModel(name='(L_S)')
     # --- Sets ---
     model.ZeroOrOne = Set(initialize=[0, 1])
