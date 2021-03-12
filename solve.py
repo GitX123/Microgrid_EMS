@@ -4,6 +4,7 @@ import local_scheduling, global_scheduling
 import data, data.mg1, data.mg2, data.mg3 
 
 solver = SolverFactory('glpk')
+mg_data = [data.mg1, data.mg2, data.mg3]
 
 # [TODO]
 def mg_info(models):
@@ -11,8 +12,13 @@ def mg_info(models):
     P_adj_min, P_adj_max = [], []
 
     for t in data.T:
-        for model in models:
-            generation_load_difference = sum(value(model.P_CDG[i, t]) for i in data.I)
+        for model_i, model in enumerate(models):
+            generation_load_difference = sum(value(model.P_CDG[i, t]) for i in data.I) + mg_data[model_i].P_pv[t] + mg_data[model_i].P_wt[t] - value(model.P_L_adj[t])
+
+            if generation_load_difference > 0:
+                pass
+            else:
+                pass
     
     return P_sur, P_short, P_adj_min, P_adj_max
 
