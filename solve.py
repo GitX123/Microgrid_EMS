@@ -1,12 +1,20 @@
 from pyomo.environ import *
 import matplotlib.pyplot as plt
-import data, local_scheduling, global_scheduling
+import local_scheduling, global_scheduling
+import data, data.mg1, data.mg2, data.mg3 
 
 solver = SolverFactory('glpk')
 
 # [TODO]
-def mg_info():
-    pass
+def mg_info(models):
+    P_sur, P_short = [], []
+    P_adj_min, P_adj_max = [], []
+
+    for t in data.T:
+        for model in models:
+            generation_load_difference = sum(value(model.P_CDG[i, t]) for i in data.I)
+    
+    return P_sur, P_short, P_adj_min, P_adj_max
 
 # --- Scheduling ---
 def run_scheduling():
@@ -14,20 +22,21 @@ def run_scheduling():
         # Local scheduling
         model_mg1 = local_scheduling.create_model(data.mg1)
         solver.solve(model_mg1)
-        model_mg2 = local_scheduling.create_model(data.mg1)
+        model_mg2 = local_scheduling.create_model(data.mg2)
         solver.solve(model_mg2)
-        model_mg3 = local_scheduling.create_model(data.mg1)
+        model_mg3 = local_scheduling.create_model(data.mg3)
         solver.solve(model_mg3)
+        models = [model_mg1, model_mg2, model_mg3]
 
         # [TODO]
         # MG info
-        P_sur, P_short, P_adj_min, P_adj_max = mg_info(model_mg1, model_mg2, model_mg3)
+        P_sur, P_short, P_adj_min, P_adj_max = mg_info(models)
 
-        # Global scheduling 
-        model = global_scheduling.create_model(data, P_sur, P_short, P_adj_min, P_adj_max)
-        solver.solve(model)
+        # # Global scheduling 
+        # model = global_scheduling.create_model(data, P_sur, P_short, P_adj_min, P_adj_max)
+        # solver.solve(model)
 
-        # Local rescheduling
+        # # Local rescheduling
         
 
 if __name__ == '__main__':
