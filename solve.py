@@ -6,20 +6,31 @@ import data, data.mg1, data.mg2, data.mg3
 solver = SolverFactory('glpk')
 mg_data = [data.mg1, data.mg2, data.mg3]
 
-# [TODO]
 def mg_info(models):
-    P_sur, P_short = [], []
-    P_adj_min, P_adj_max = [], []
+    P_sur, P_short = [[] for _ in range(len(models))], [[] for _ in range(len(models))]
+    P_adj_min, P_adj_max = [[[] for i in data.I] for _ in range(len(models))], [[[] for i in data.I] for _ in range(len(models))]
 
     for t in data.T:
         for model_i, model in enumerate(models):
             generation_load_difference = sum(value(model.P_CDG[i, t]) for i in data.I) + mg_data[model_i].P_pv[t] + mg_data[model_i].P_wt[t] - value(model.P_L_adj[t])
 
             if generation_load_difference > 0:
-                pass
+                P_sur[model_i].append(generation_load_difference)
+                P_short[model_i].append(0.0)
             else:
-                pass
-    
+                P_sur[model_i].append(0.0)
+                P_short[model_i].append(-generation_load_difference)
+
+            for i in data.I:
+                if (mg_data[model_i].C_CDG[i][t] >= mg_data[model_i].PR_sell[t]) and (mg_data[model_i].C_CDG[i][t] <= mg_data[model_i].PR_buy[t]):
+                    min_ = mg_data[model_i].P_min[i] - value(model.P_CDG[i, t])
+                    max_ = mg_data[model_i].P_max[i] - value(model.P_CDG[i, t])
+                    P_adj_min[model_i][i].append(min_)
+                    P_adj_max[model_i][i].append(max_)
+                else:
+                    P_adj_min[model_i][i].append(0.0)
+                    P_adj_max[model_i][i].append(0.0)
+
     return P_sur, P_short, P_adj_min, P_adj_max
 
 # --- Scheduling ---
