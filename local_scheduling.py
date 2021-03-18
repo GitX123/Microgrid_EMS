@@ -38,7 +38,7 @@ def create_model(data, rescheduling=False):
     # battery
     model.P_B_ch = Var(data.T, within=NonNegativeReals)
     model.P_B_dis = Var(data.T, within=NonNegativeReals)
-    SOC_B0 = 1 # initial SOC
+    SOC_B0 = 0.25 # initial SOC
     model.SOC_Bp = Var(data.T, within=PercentFraction) # before self-discharge
     model.SOC_B = Var(data.T, within=PercentFraction) # after self-discharge
 
@@ -53,19 +53,25 @@ def create_model(data, rescheduling=False):
     # --- Objective ---
     def obj_rule(model):
         cdg_cost = 0.0
-        for i in data.I:
-            for t in data.T:
-                cdg_cost += data.C_CDG[i][t] * model.P_CDG[i, t] + data.C_SU[i] * model.y[i, t]
+        if not rescheduling:
+            for i in data.I:
+                for t in data.T:
+                    cdg_cost += data.C_CDG[i][t] * model.P_CDG[i, t] + data.C_SU[i] * model.y[i, t]
 
         transaction_cost = 0.0
-        for t in data.T:
-            transaction_cost += data.PR_buy[t] * model.P_short[t] - data.PR_sell[t] * model.P_sur[t]
+        if not rescheduling:
+            for t in data.T:
+                transaction_cost += data.PR_buy[t] * model.P_short[t] - data.PR_sell[t] * model.P_sur[t]
+        else:
+            # [TODO]
+            transaction_cost
 
         load_shift_penalty = 0.0
-        for t in data.T:
-            for tp in data.T:
-                if t != tp:
-                    load_shift_penalty += data.vt_t[t][tp] * model.P_sh[t, tp]
+        if not rescheduling:
+            for t in data.T:
+                for tp in data.T:
+                    if t != tp:
+                        load_shift_penalty += data.vt_t[t][tp] * model.P_sh[t, tp]
 
         obj = cdg_cost + transaction_cost + load_shift_penalty
         return obj

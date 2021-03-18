@@ -1,7 +1,7 @@
 from pyomo.environ import *
 import matplotlib.pyplot as plt
 import local_scheduling, global_scheduling
-import data, data.mg1, data.mg2, data.mg3 
+import data, data.mg1, data.mg2, data.mg3, data.dso 
 
 solver = SolverFactory('glpk')
 mg_data = [data.mg1, data.mg2, data.mg3]
@@ -14,6 +14,7 @@ def mg_info(models):
         for model_i, model in enumerate(models):
             generation_load_difference = sum(value(model.P_CDG[i, t]) for i in data.I) + mg_data[model_i].P_pv[t] + mg_data[model_i].P_wt[t] - value(model.P_L_adj[t])
 
+            # surplus and shortage power
             if generation_load_difference > 0:
                 P_sur[model_i].append(generation_load_difference)
                 P_short[model_i].append(0.0)
@@ -21,6 +22,7 @@ def mg_info(models):
                 P_sur[model_i].append(0.0)
                 P_short[model_i].append(-generation_load_difference)
 
+            # adjust power range
             for i in data.I:
                 if (mg_data[model_i].C_CDG[i][t] >= mg_data[model_i].PR_sell[t]) and (mg_data[model_i].C_CDG[i][t] <= mg_data[model_i].PR_buy[t]):
                     min_ = mg_data[model_i].P_min[i] - value(model.P_CDG[i, t])
@@ -37,23 +39,28 @@ def mg_info(models):
 def run_scheduling():
     for t in data.T:
         # Local scheduling
-        model_mg1 = local_scheduling.create_model(data.mg1)
+        model_mg1 = local_scheduling.create_model(data=data.mg1)
         solver.solve(model_mg1)
-        model_mg2 = local_scheduling.create_model(data.mg2)
+        model_mg2 = local_scheduling.create_model(data=data.mg2)
         solver.solve(model_mg2)
-        model_mg3 = local_scheduling.create_model(data.mg3)
+        model_mg3 = local_scheduling.create_model(data=data.mg3)
         solver.solve(model_mg3)
         models = [model_mg1, model_mg2, model_mg3]
 
-        # [TODO]
         # MG info
         P_sur, P_short, P_adj_min, P_adj_max = mg_info(models)
+        print('[Surplus]')
+        print(P_sur, '\n')
+        print('[Shortage]')
+        print(P_short, '\n')
+        print('[Adjust]')
+        print(P_adj_min, '\n', P_adj_max, '\n')
 
-        # # Global scheduling 
-        # model = global_scheduling.create_model(data, P_sur, P_short, P_adj_min, P_adj_max)
-        # solver.solve(model)
+        # Global scheduling 
+        model = global_scheduling.create_model(data=data.dso, P_sur=P_sur, P_short=P_short, P_adj_min=P_adj_min, P_adj_max=P_adj_max)
+        solver.solve(model)
 
-        # # Local rescheduling
+        # Local rescheduling
         
 
 if __name__ == '__main__':
