@@ -11,12 +11,12 @@ def create_model(data, P_sur, P_short, P_adj_min, P_adj_max):
 
     # --- Variable ---
     # CDG
-    model.P_CDGP = Var(data.T)
-    model.P_adj = Var(data.K, data.I, data.T)
+    model.P_CDGP = Var(data.T, within=NonNegativeReals)
+    model.P_adj = Var(data.K, data.I, data.T, within=NonNegativeReals)
 
     # transaction
-    model.P_buy = Var(data.K, data.T)
-    model.P_sell = Var(data.K, data.T)
+    model.P_buy = Var(data.K, data.T, within=NonNegativeReals)
+    model.P_sell = Var(data.K, data.T, within=NonNegativeReals)
 
     # CBESS
     model.P_CB_ch = Var(data.T, within=NonNegativeReals)

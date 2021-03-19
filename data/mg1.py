@@ -1,10 +1,6 @@
 import numpy as np
 import pandas as pd
-from data import I, T, K
-
-# Utility
-PR_buy = [155 for t in T]
-PR_sell = [152.5 for t in T]
+from data import I, T, K, PR_buy, PR_sell, PR_rec, PR_send
 
 # CDG
 C_CDG = [[140, 135, 137.5, 135, 132.5, 140, 147.5, 152.5, 155, 160, 165, 170, 172.5, 170, 167.5, 165, 165, 162.5, 160, 157.5, 155, 142.5, 140, 137.5], 

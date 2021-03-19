@@ -16,7 +16,7 @@ Data:
 
 from pyomo.environ import *
 
-def create_model(data, rescheduling=False):
+def create_model(data, rescheduling=False, P_CDG=None, P_adj=None, P_B_ch=None, P_B_dis=None, P_L_adj=None, P_buy=None, P_sell=None):
     model = ConcreteModel(name='(L_S)')
     # --- Sets ---
     model.ZeroOrOne = Set(initialize=[0, 1])
@@ -47,8 +47,12 @@ def create_model(data, rescheduling=False):
     model.P_sh = Var(data.T, data.T, within=NonNegativeReals)
 
     # transaction
-    model.P_short = Var(data.T, within=NonNegativeReals, initialize=0)
-    model.P_sur = Var(data.T, within=NonNegativeReals, initialize=0)
+    if not rescheduling:
+        model.P_short = Var(data.T, within=NonNegativeReals, initialize=0.0)
+        model.P_sur = Var(data.T, within=NonNegativeReals, initialize=0.0)
+    else:
+        model.P_rec = Var(data.T, within=NonNegativeReals, initialize=0.0)
+        model.P_send = Var(data.T, within=NonNegativeReals, initialize=0.0)
 
     # --- Objective ---
     def obj_rule(model):
@@ -57,14 +61,15 @@ def create_model(data, rescheduling=False):
             for i in data.I:
                 for t in data.T:
                     cdg_cost += data.C_CDG[i][t] * model.P_CDG[i, t] + data.C_SU[i] * model.y[i, t]
+        # else:
+        #     cdg_cost += sum(data.C_CDG[i][t] * (model.P_CDG[i, t] + P_adj[i][t]) + data.C_SU[i] * model.y[i, t] for i in data.I for t in data.T)
 
         transaction_cost = 0.0
         if not rescheduling:
             for t in data.T:
                 transaction_cost += data.PR_buy[t] * model.P_short[t] - data.PR_sell[t] * model.P_sur[t]
         else:
-            # [TODO]
-            transaction_cost
+            transaction_cost += sum(data.PR_rec[t] * model.P_rec[t] - data.PR_send[t] * model.P_send[t] for t in data.T)
 
         load_shift_penalty = 0.0
         if not rescheduling:
@@ -79,109 +84,112 @@ def create_model(data, rescheduling=False):
 
     # --- Constraints ---
     # CDG
+    if not rescheduling:
+        def cdg_power_limit_rule1(model, i, t):
+            return model.P_CDG[i, t] >= model.u[i, t] * data.P_min[i]
+        model.cdg_power_limit1 = Constraint(data.I, data.T, rule=cdg_power_limit_rule1)
 
-    def cdg_power_limit_rule1(model, i, t):
-        return model.P_CDG[i, t] >= model.u[i, t] * data.P_min[i]
-    model.cdg_power_limit1 = Constraint(data.I, data.T, rule=cdg_power_limit_rule1)
+        def cdg_power_limit_rule2(model, i, t):
+            return model.P_CDG[i, t] <= model.u[i, t] * data.P_max[i]
+        model.cdg_power_limit2 = Constraint(data.I, data.T, rule=cdg_power_limit_rule2)
 
-    def cdg_power_limit_rule2(model, i, t):
-        return model.P_CDG[i, t] <= model.u[i, t] * data.P_max[i]
-    model.cdg_power_limit2 = Constraint(data.I, data.T, rule=cdg_power_limit_rule2)
+        def y_value_rule1(model, i, t):
+            if t == 0:
+                return model.y[i, t] >= model.u[i ,t] - u0
+            return model.y[i, t] >= model.u[i, t] - model.u[i, t-1]
+        model.y_value1 = Constraint(data.I, data.T, rule=y_value_rule1)
 
-    def y_value_rule1(model, i, t):
-        if t == 0:
-            return model.y[i, t] >= model.u[i ,t] - u0
-        return model.y[i, t] >= model.u[i, t] - model.u[i, t-1]
-    model.y_value1 = Constraint(data.I, data.T, rule=y_value_rule1)
+        def y_value_rule2(model, i, t):
+            return model.y[i, t] >= 0
+        model.y_value2 = Constraint(data.I, data.T, rule=y_value_rule2)
 
-    def y_value_rule2(model, i, t):
-        return model.y[i, t] >= 0
-    model.y_value2 = Constraint(data.I, data.T, rule=y_value_rule2)
+        def y_value_rule3(model, i, t):
+            if t == 0:
+                return model.y[i, t] - model.M * (1 - model.i_1[i, t]) <= model.u[i, t] - u0
+            return model.y[i, t] - model.M * (1 - model.i_1[i, t]) <= model.u[i, t] - model.u[i, t-1]
+        model.y_value3 = Constraint(data.I, data.T, rule=y_value_rule3)
 
-    def y_value_rule3(model, i, t):
-        if t == 0:
-            return model.y[i, t] - model.M * (1 - model.i_1[i, t]) <= model.u[i, t] - u0
-        return model.y[i, t] - model.M * (1 - model.i_1[i, t]) <= model.u[i, t] - model.u[i, t-1]
-    model.y_value3 = Constraint(data.I, data.T, rule=y_value_rule3)
+        def y_value_rule4(model, i, t):
+            return model.y[i, t] - model.M * (1 - model.i_2[i, t]) <= 0
+        model.y_value4 = Constraint(data.I, data.T, rule=y_value_rule4)
 
-    def y_value_rule4(model, i, t):
-        return model.y[i, t] - model.M * (1 - model.i_2[i, t]) <= 0
-    model.y_value4 = Constraint(data.I, data.T, rule=y_value_rule4)
-
-    def y_value_rule5(model, i, t):
-        return model.i_1[i, t] + model.i_2[i, t] >= 1
-    model.y_value5 = Constraint(data.I, data.T, rule=y_value_rule5)
+        def y_value_rule5(model, i, t):
+            return model.i_1[i, t] + model.i_2[i, t] >= 1
+        model.y_value5 = Constraint(data.I, data.T, rule=y_value_rule5)
 
     # Power
-
     def power_balance_rule(model, t):
-        return (data.P_pv[t] + data.P_wt[t] + sum(model.P_CDG[i, t] for i in data.I) + model.P_short[t] + model.P_B_dis[t]) \
-                == (model.P_L_adj[t] + model.P_sur[t] + model.P_B_ch[t])
+        if not rescheduling:
+            return (data.P_pv[t] + data.P_wt[t] + sum(model.P_CDG[i, t] for i in data.I) + model.P_short[t] + model.P_B_dis[t]) \
+                    == (model.P_L_adj[t] + model.P_sur[t] + model.P_B_ch[t])
+        else:
+            return data.P_pv[t] + data.P_wt[t] + sum(P_CDG[i][t] + P_adj[i][t] for i in data.I) + P_B_dis[t] + P_buy[t] + model.P_rec[t] \
+                == P_L_adj[t] + P_B_ch[t] + P_sell[t] + model.P_send[t]
     model.power_balance = Constraint(data.T, rule=power_balance_rule)
 
     # Battery
+    if not rescheduling:
+        def charging_rule(model, t):
+            if t == 0:
+                return model.P_B_ch[t] <= data.P_B_cap * (1 - SOC_B0) / (1 - data.L_B_ch) / data.ETA_BTB
+            return model.P_B_ch[t] <= data.P_B_cap * (1 - model.SOC_B[t-1]) / (1 - data.L_B_ch) / data.ETA_BTB
+        model.charging = Constraint(data.T, rule=charging_rule)
 
-    def charging_rule(model, t):
-        if t == 0:
-            return model.P_B_ch[t] <= data.P_B_cap * (1 - SOC_B0) / (1 - data.L_B_ch) / data.ETA_BTB
-        return model.P_B_ch[t] <= data.P_B_cap * (1 - model.SOC_B[t-1]) / (1 - data.L_B_ch) / data.ETA_BTB
-    model.charging = Constraint(data.T, rule=charging_rule)
+        def discharging_rule(model, t):
+            if t == 0:
+                return model.P_B_dis[t] <= data.P_B_cap * SOC_B0 * (1 - data.L_B_dis) * data.ETA_BTB
+            return model.P_B_dis[t] <= data.P_B_cap * model.SOC_B[t-1] * (1 - data.L_B_dis) * data.ETA_BTB
+        model.discharging = Constraint(data.T, rule=discharging_rule)
 
-    def discharging_rule(model, t):
-        if t == 0:
-            return model.P_B_dis[t] <= data.P_B_cap * SOC_B0 * (1 - data.L_B_dis) * data.ETA_BTB
-        return model.P_B_dis[t] <= data.P_B_cap * model.SOC_B[t-1] * (1 - data.L_B_dis) * data.ETA_BTB
-    model.discharging = Constraint(data.T, rule=discharging_rule)
+        def b2b_charging_capacity_rule(model, t):
+            return model.P_B_ch[t] <= data.P_BTB / data.ETA_BTB
+        model.b2b_charging_capacity = Constraint(data.T, rule=b2b_charging_capacity_rule)
 
-    def b2b_charging_capacity_rule(model, t):
-        return model.P_B_ch[t] <= data.P_BTB / data.ETA_BTB
-    model.b2b_charging_capacity = Constraint(data.T, rule=b2b_charging_capacity_rule)
+        def b2b_discharging_capacity_rule(model, t):
+            return model.P_B_dis[t] <= data.P_BTB / data.ETA_BTB
+        model.b2b_discharging_capacity = Constraint(data.T, rule=b2b_discharging_capacity_rule)
 
-    def b2b_discharging_capacity_rule(model, t):
-        return model.P_B_dis[t] <= data.P_BTB / data.ETA_BTB
-    model.b2b_discharging_capacity = Constraint(data.T, rule=b2b_discharging_capacity_rule)
+        def soc_update_rule(model, t):
+            if t == 0:
+                return model.SOC_B[t] == SOC_B0 - (1 / data.P_B_cap) * ((1 / (1 - data.L_B_dis) / data.ETA_BTB * model.P_B_dis[t]) - (model.P_B_ch[t] * (1 - data.L_B_ch) * data.ETA_BTB))
+            return model.SOC_B[t] == model.SOC_B[t-1] - (1 / data.P_B_cap) * ((1 / (1 - data.L_B_dis) / data.ETA_BTB * model.P_B_dis[t]) - (model.P_B_ch[t] * (1 - data.L_B_ch) * data.ETA_BTB))
+        model.soc_update = Constraint(data.T, rule=soc_update_rule)
 
-    def soc_update_rule(model, t):
-        if t == 0:
-            return model.SOC_B[t] == SOC_B0 - (1 / data.P_B_cap) * ((1 / (1 - data.L_B_dis) / data.ETA_BTB * model.P_B_dis[t]) - (model.P_B_ch[t] * (1 - data.L_B_ch) * data.ETA_BTB))
-        return model.SOC_B[t] == model.SOC_B[t-1] - (1 / data.P_B_cap) * ((1 / (1 - data.L_B_dis) / data.ETA_BTB * model.P_B_dis[t]) - (model.P_B_ch[t] * (1 - data.L_B_ch) * data.ETA_BTB))
-    model.soc_update = Constraint(data.T, rule=soc_update_rule)
-
-    def self_dis_rule(model, t):
-        return model.SOC_B[t] == (1 - data.DELTA_B) * model.SOC_Bp[t]
-    model.self_dis = Constraint(data.T, rule=self_dis_rule)
+        def self_dis_rule(model, t):
+            return model.SOC_B[t] == (1 - data.DELTA_B) * model.SOC_Bp[t]
+        model.self_dis = Constraint(data.T, rule=self_dis_rule)
 
     # Load
+    if not rescheduling:
+        def load_shift_inflow_rule(model, t):
+            inflow = 0.0
+            for tp in data.T:
+                if tp != t:
+                    inflow += model.P_sh[tp, t]
+            return inflow <= data.IF_max[t]
+        model.load_shift_inflow = Constraint(data.T, rule=load_shift_inflow_rule)
 
-    def load_shift_inflow_rule(model, t):
-        inflow = 0.0
-        for tp in data.T:
-            if tp != t:
-                inflow += model.P_sh[tp, t]
-        return inflow <= data.IF_max[t]
-    model.load_shift_inflow = Constraint(data.T, rule=load_shift_inflow_rule)
+        def load_shift_outflow_rule(model, t):
+            outflow = 0.0
+            for tp in data.T:
+                if tp != t:
+                    outflow += model.P_sh[t, tp]
+            return outflow <= data.OF_max[t]
+        model.load_shift_outflow = Constraint(data.T, rule=load_shift_outflow_rule)
 
-    def load_shift_outflow_rule(model, t):
-        outflow = 0.0
-        for tp in data.T:
-            if tp != t:
-                outflow += model.P_sh[t, tp]
-        return outflow <= data.OF_max[t]
-    model.load_shift_outflow = Constraint(data.T, rule=load_shift_outflow_rule)
+        def adj_load_rule(model, t):
+            inflow = 0.0
+            outflow = 0.0
 
-    def adj_load_rule(model, t):
-        inflow = 0.0
-        outflow = 0.0
+            for tp in data.T:
+                if tp != t:
+                    inflow += model.P_sh[tp, t]
 
-        for tp in data.T:
-            if tp != t:
-                inflow += model.P_sh[tp, t]
+            for tp in data.T:
+                if tp != t:
+                    outflow += model.P_sh[t, tp]
 
-        for tp in data.T:
-            if tp != t:
-                outflow += model.P_sh[t, tp]
-
-        return model.P_L_adj[t] == data.P_L_fix[t] + data.OF_max[t] + inflow - outflow
-    model.adj_load = Constraint(data.T, rule=adj_load_rule)
+            return model.P_L_adj[t] == data.P_L_fix[t] + data.OF_max[t] + inflow - outflow
+        model.adj_load = Constraint(data.T, rule=adj_load_rule)
 
     return model

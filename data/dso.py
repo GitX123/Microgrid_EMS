@@ -6,7 +6,7 @@ PR_buy = [155 for t in T]
 PR_sell = [152.5 for t in T]
 
 # Costs
-C_CDGP = [133.0 for t in T]
+C_CDGP = [152.0 for t in T]
 C_CDG = [data.mg1.C_CDG, data.mg2.C_CDG, data.mg3.C_CDG]
 
 P_CDGP_min = 0.0       
